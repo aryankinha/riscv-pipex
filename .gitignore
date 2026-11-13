@@ -1,0 +1,17 @@
+build/
+*.vcd
+*.vvp
+.DS_Store
+*~
+*.swp
+.vscode/
+.idea/
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
