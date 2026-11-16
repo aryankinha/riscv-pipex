@@ -58,7 +58,7 @@ The report uses the checked-in figures, so its rebuild does not need the figure 
 
 ## Video
 
-[[FILL: video link]]
+[Video Link](https://drive.google.com/drive/folders/1zvoQiCziL2G4nigfQbIoxcu8opQLb8yZ?usp=sharing)
 
 ## Team
 
