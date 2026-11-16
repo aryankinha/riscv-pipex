@@ -66,7 +66,7 @@ The reference-model and edge-case approach was compared with [Ario2006/risc-5-pr
 
 ## Video
 
-[Prototype video folder](https://drive.google.com/drive/folders/1zvoQiCziL2G4nigfQbIoxcu8opQLb8yZ?usp=sharing)
+[Video](https://drive.google.com/drive/folders/1zvoQiCziL2G4nigfQbIoxcu8opQLb8yZ?usp=sharing)
 
 ## Team
 
