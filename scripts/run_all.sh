@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+for tool in iverilog vvp python3; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Missing test tool: $tool. Install Icarus Verilog and Python 3; see README.md." >&2
+    exit 127
+  fi
+done
 rm -rf build
 mkdir build
 rtl=$(find rtl -name '*.v' | sort)

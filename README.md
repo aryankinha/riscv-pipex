@@ -28,7 +28,39 @@ Leave two NOPs between a register-writing instruction and its first dependent re
 
 The tests require Python 3, a POSIX shell, Icarus Verilog (`iverilog` and `vvp`) and standard Unix file tools. Python uses only its standard library. They were run with Icarus Verilog 13.0. The checked-in hex files run without an assembler.
 
-From this folder:
+Install the tools once on each computer. On macOS with [Homebrew](https://brew.sh/):
+
+```sh
+brew install icarus-verilog python
+```
+
+On Ubuntu, including Ubuntu inside Windows WSL:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y iverilog python3 git
+```
+
+Windows users should run the project commands inside WSL. No Python packages or FPGA tools are needed for these tests.
+
+Download and extract the repository ZIP, or clone it:
+
+```sh
+git clone https://github.com/aryankinha/riscv-pipex.git
+cd riscv-pipex
+```
+
+Check the installation:
+
+```sh
+command -v iverilog
+command -v vvp
+python3 --version
+```
+
+If the script reports `iverilog: command not found`, Icarus Verilog is missing from the terminal's PATH. Making the script executable with `chmod` does not install it. Install the tools above, then open a new terminal if needed.
+
+From the repository folder:
 
 ```sh
 ./scripts/run_all.sh
@@ -45,6 +77,22 @@ The pipeline test checks that valid instructions at distinct addresses occupy al
 The full suite runs 19 programs: the original four, three directed edge cases and twelve repeatable random cases using seeds 0 through 11. The added cases cover repeated register destinations, x0, memory overwrites, the last memory word, invalid data addresses and branch shadows. Random cases combine the existing instructions with two-NOP padding and forward branches. All extra images and expected states stay under `build/`. The suite checks this subset and its timing rules; it does not establish full ISA compliance.
 
 Each run also writes `build/<program>.csv` alongside its VCD. CSV rows sample the pipeline immediately before the active edge. They contain the cycle, stage PCs and valid bits, the WB instruction and register write, and the branch-taken signal. PCs, instruction words and data are hexadecimal; counters, flags and register numbers are decimal. Read a stage PC only when its valid bit is set. `wb_write` excludes writes to x0, and `wb_rd` and `wb_data` matter only when it is set.
+
+## View the results
+
+For a quick check, run the test command above and look for PASS messages: 59 RTL unit cases, 19 program runs, eight reference-model cases and four encoding checks. A failed check returns a nonzero exit status.
+
+The report and checked-in PNG/PDF diagrams open in ordinary viewers without development tools. For interactive signal inspection, open a `build/*.vcd` file in a VCD viewer such as GTKWave. For example, if GTKWave is installed:
+
+```sh
+gtkwave build/04_dependencies.vcd
+```
+
+## Continuous integration
+
+[Phase I test runs](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml) run on pushes and pull requests, and can also be started from the Actions tab with Run workflow. Each run uses a fresh Ubuntu checkout, installs Icarus Verilog and Python 3, and executes `./scripts/run_all.sh`. Open the run's test step to see the PASS output or the first failing check. CI tests the CPU and reference model; document and figure rendering remain separate commands below.
+
+## Rebuild the figures and report
 
 To rebuild the waveform after running the tests, install Python 3, pdfLaTeX with TikZ, and Poppler (`pdftoppm`), then run:
 
