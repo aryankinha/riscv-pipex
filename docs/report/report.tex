@@ -35,6 +35,8 @@ PicoRV32 is a compact core with options for its register file, memory interface 
 
 VexRiscv uses SpinalHDL and supports configurable pipeline stages, bypass paths and interlocks~\cite{vex}. Its operand-routing and hazard options provide a comparison for the fixed EX operand selection used here. Our design has no plugin system or configurable hazard hardware. CORE-V CV32E40P is an in-order pipelined core with a wider instruction scope and a separate verification project~\cite{cv}. These cores illustrate different choices for stage boundaries and interfaces. We consulted their documentation for comparison and wrote the RTL for this project's Phase I requirements.
 
+The student repository \texttt{risc-5-processor} checks its CPUs with an instruction model, directed edge cases and repeatable random programs~\cite{comparison}. We used those verification ideas to extend this prototype's tests. Our checker is written for the selected instruction subset and its NOP scheduling rule.
+
 \section{Proposed Solution}
 \subsection{Datapath and scope}
 The processor has IF, ID, EX, MEM and WB stages, separated by IF/ID, ID/EX, EX/MEM and MEM/WB registers. Fig.~\ref{fig:block} shows the datapath, the write-back connection and EX branch redirection. All state changes on the rising edge of one clock. The synchronous active-high reset clears the PC, writable machine state and pipeline valid bits. Instruction memory loads the selected hex file with \texttt{\$readmemh}; reset leaves the program intact.
@@ -53,7 +55,7 @@ The processor has IF, ID, EX, MEM and WB stages, separated by IF/ID, ID/EX, EX/M
 
 The register file stores word-sized values. Reads of x0 return zero, and writes to x0 are ignored. Each memory holds 64 words. The arrays use word indices, but the PC, effective addresses and branch offsets use standard byte addresses. An aligned address selects a word with its low alignment bits set to zero. Sequential execution advances the PC by four bytes.
 
-The memory wrapper supports aligned addresses within the local storage range. An invalid or misaligned instruction fetch returns NOP. An invalid data read returns zero, and an invalid data write has no effect. These rules keep array accesses defined without adding access-fault or misalignment traps. The supplied programs use valid local addresses. The design has no interrupts, caches or bus handshakes.
+The memory wrapper supports aligned addresses within the local storage range. An invalid or misaligned instruction fetch returns NOP. An invalid data read returns zero, and an invalid data write has no effect. These rules keep array accesses defined without adding access-fault or misalignment traps. The saved demonstration programs use valid local addresses; verification-only edge cases also check invalid data accesses. The design has no interrupts, caches or bus handshakes.
 
 \subsection{Instructions and decoding}
 The accepted encodings are listed in Table~\ref{tab:enc}. ADD and SUB use the R format. ADDI and LW use an I immediate, while SW reconstructs the split S immediate. Branch decoding reconstructs the B immediate, including its implicit low zero bit. Immediates are sign-extended before arithmetic. ADD and SUB wrap at the register width. LW and SW access whole words. BEQ tests equality and BNE tests inequality. NOP uses the standard ADDI encoding with zero source, destination and immediate.
@@ -121,7 +123,11 @@ A writer and its first dependent reader need two intervening instructions. With 
 The dependency program uses exactly two NOPs at each such boundary. Independent instructions can fill the same slots. The rule covers every register operand, including branch comparisons, store addresses and store data. A store followed by a load from the same address needs no padding for the memory access itself, because the store reaches MEM first. The load still needs padding if a recent register write supplies its address. Incorrectly scheduled dependencies produce stale operands; the hardware does not repair them.
 
 \subsection{Prototype verification status}
-The runner compiles and simulates the tests with Icarus Verilog~\cite{icarus}. The ALU bench checks addition, subtraction and wraparound. Register-file tests cover reset, saved writes, x0 and write-through on both read ports. Control tests exercise every supported operation, nearby unsupported encodings and signed immediate reconstruction. GNU RISC-V binutils assembled the program sources, and the emitted words matched the checked encodings. Each program runs in a fresh simulation. The top-level bench compares every register and data-memory word with its expected-state file.
+The runner compiles and simulates the tests with Icarus Verilog~\cite{icarus}. The ALU bench checks addition, subtraction and wraparound. Register-file tests cover reset, saved writes, x0 and write-through on both read ports. Control tests exercise every supported operation, nearby unsupported encodings and signed immediate reconstruction. GNU RISC-V binutils assembled the four saved assembly programs, and the emitted words matched the checked encodings. Each program runs in a fresh simulation. The top-level bench compares every register and data-memory word with its expected-state file.
+
+A separate Python instruction model checks the saved expected-state files and every RTL retirement's PC, instruction word and register write. Before these comparisons, it passes 8 hand-calculated model cases and 4 fixed encoding checks. The extended suite passes 19 RTL program runs: the original 4, 3 directed edge cases and 12 repeatable random cases. The added cases exercise repeated destinations, x0, memory overwrite and boundary behavior, invalid data addresses and branch shadows. Random cases retain the two-NOP padding rule and use forward branches to guarantee termination. Test images and expected states for these runs remain in the build directory.
+
+The bench also writes a CSV trace with stage PCs, valid bits, WB effects and the taken-branch signal, sampled before each active edge. Every run checks that cycles equal retired instructions plus pipeline fill and the taken-branch flush cost. This accounts for the observed timing without introducing a baseline or a performance study.
 
 An instruction retires when a valid supported entry reaches its WB completion edge. This includes NOPs, stores and branches, even when they write no register. Flushed entries do not retire. A store changes memory in MEM, before it reaches WB. The cycle counter starts at the first rising edge after reset release and stops when the program's final instruction completes WB. The testbench defines this stopping point; the CPU has no halt instruction.
 
@@ -145,21 +151,21 @@ Fig.~\ref{fig:wave} plots the dependency program's VCD. The instruction words ad
 
 Expected-state files list the registers followed by every data word. The arithmetic program checks signed immediates and writes to x0. The memory program stores a negative value, loads it and stores that loaded value elsewhere. The branch program checks that discarded writes leave their destinations unchanged. The dependency program carries arithmetic results through a store and load into a later subtraction. These directed cases check the chosen subset and timing rules; broader ISA compliance testing remains separate.
 
-Fault checks used temporary copies of the project. Changing subtraction to addition failed the ALU test. Disabling the branch flush failed the processor test. Both copies were discarded. The complete runner also passed in a fresh directory without old build files. RTL lint checks passed. Hardware timing, resource measurements and FPGA deployment remain for the next phase.
+Fault checks used temporary copies of the project. Changing subtraction to addition failed the ALU test. Disabling the branch flush failed the processor test. Both copies were discarded. A separate fault check corrupted only the recorded WB data. Final-state checks still passed, but the instruction-model comparison rejected the trace. The complete runner also passed in a fresh directory without old build files. RTL lint checks passed. Hardware timing, resource measurements and FPGA deployment remain for the next phase.
 
 \clearpage
 \section{Individual Contributions}
-Aryan Kinha is the team lead. The assigned responsibilities cover module review, testing and viva preparation. Each member is responsible for explaining the listed modules and how they connect to the rest of the processor. These assignments record ownership; they do not certify completed individual work or commit history.
+Aryan Kinha coordinates integration and testing as team lead. The repository history records the following module contributions. Each member also prepares to explain these modules and their connections to the full processor.
 
 \par\smallskip
 \noindent{\footnotesize
 \begin{tabular}{p{0.25\columnwidth}p{0.65\columnwidth}}\hline
-Member & Assigned responsibility\\\hline
-Preetish Ubhrani\newline 2401020050 & Execute and branch logic: ALU, EX, EX/MEM and ALU tests. Review the branch decision, target calculation and flush behavior with the integration lead.\newline\url{preetish.ubhrani2024@nst.rishihood.edu.in}\\[5pt]
-Aryan Kinha\newline 2401020013 & Team lead: processor integration, top-level tests, programs and test runner. Coordinate the report and figures; explain reset, instruction overlap and the verification results.\newline\url{aryan.kinha2024@nst.rishihood.edu.in}\\[5pt]
-Divyanshu Singh\newline 2401010161 & Decode and control: register file, immediate decoder, control unit, ID and ID/EX. Review the register-file and control tests; explain control signals and NOP spacing.\newline\url{divyanshu.singh2024@nst.rishihood.edu.in}\\[5pt]
-Jatin Verma\newline 2401010200 & Memory and write-back: data memory, MEM, MEM/WB and WB. Review the load/store program and expected values; explain address indexing, store timing and result selection.\newline\url{jatin.verma2024@nst.rishihood.edu.in}\\[5pt]
-Jatin Kumar Singh\newline 2401010199 & Fetch: PC/IF, instruction memory and IF/ID. Review reset, sequential PC updates and hex loading; explain how a taken branch redirects fetch and clears IF/ID.\newline\url{jatin.singh2024@nst.rishihood.edu.in}\\\hline
+Member & Repository contribution\\\hline
+Preetish Ubhrani\newline 2401020050 & Execute and branch logic: ALU, EX, EX/MEM and ALU tests, including operand selection, branch comparison and target calculation.\newline\url{preetish.ubhrani2024@nst.rishihood.edu.in}\\[5pt]
+Aryan Kinha\newline 2401020013 & Team lead: processor integration, top-level tests, instruction programs, test runner, reference checks, report and figures.\newline\url{aryan.kinha2024@nst.rishihood.edu.in}\\[5pt]
+Divyanshu Singh\newline 2401010161 & Decode and control: register file, immediate decoder, control unit, ID and ID/EX, with register-file and control unit tests.\newline\url{divyanshu.singh2024@nst.rishihood.edu.in}\\[5pt]
+Jatin Verma\newline 2401010200 & Memory and write-back: data memory, MEM, MEM/WB and WB, with the load/store program and its expected states.\newline\url{jatin.verma2024@nst.rishihood.edu.in}\\[5pt]
+Jatin Kumar Singh\newline 2401010199 & Fetch: PC/IF, instruction memory and IF/ID, including reset, sequential PC updates, hex loading and branch redirection.\newline\url{jatin.singh2024@nst.rishihood.edu.in}\\\hline
 \end{tabular}}
 
 \newpage

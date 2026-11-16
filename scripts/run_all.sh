@@ -11,12 +11,17 @@ done
 iverilog -g2001 -Wall -s tb_pipeline_top -DPROGRAM_FILE='"programs/01_arithmetic.hex"' -DEXPECTED_FILE='"programs/01_arithmetic.expected"' -DLAST_PC=32 -DEXPECTED_RETIRED=9 -o build/pipeline.vvp $rtl tb/tb_pipeline_top.v
 vvp build/pipeline.vvp
 mv build/pipeline.vcd build/01_arithmetic.vcd
+mv build/pipeline.csv build/01_arithmetic.csv
 iverilog -g2001 -Wall -s tb_pipeline_top -DPROGRAM_FILE='"programs/02_load_store.hex"' -DEXPECTED_FILE='"programs/02_load_store.expected"' -DLAST_PC=36 -DEXPECTED_RETIRED=10 -o build/pipeline.vvp $rtl tb/tb_pipeline_top.v
 vvp build/pipeline.vvp
 mv build/pipeline.vcd build/02_load_store.vcd
+mv build/pipeline.csv build/02_load_store.csv
 iverilog -g2001 -Wall -s tb_pipeline_top -DPROGRAM_FILE='"programs/03_branches.hex"' -DEXPECTED_FILE='"programs/03_branches.expected"' -DLAST_PC=88 -DEXPECTED_RETIRED=29 -o build/pipeline.vvp $rtl tb/tb_pipeline_top.v
 vvp build/pipeline.vvp
 mv build/pipeline.vcd build/03_branches.vcd
+mv build/pipeline.csv build/03_branches.csv
 iverilog -g2001 -Wall -s tb_pipeline_top -DPROGRAM_FILE='"programs/04_dependencies.hex"' -DEXPECTED_FILE='"programs/04_dependencies.expected"' -DLAST_PC=64 -DEXPECTED_RETIRED=17 -o build/pipeline.vvp $rtl tb/tb_pipeline_top.v
 vvp build/pipeline.vvp
 mv build/pipeline.vcd build/04_dependencies.vcd
+mv build/pipeline.csv build/04_dependencies.csv
+python3 scripts/check_programs.py

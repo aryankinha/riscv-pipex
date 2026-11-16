@@ -11,11 +11,15 @@ wire [31:0] pc,if_instr,retire_pc,retire_instr;
 wire retire_valid;
 reg [31:0] expected [0:95];
 integer cycles=0,retired=0,i,taken_branches=0;
+integer trace_file;
 reg [31:0] checked_target;
 reg overlap=0;
 always #5 clk=~clk;
 pipeline_top #(`PROGRAM_FILE) dut(clk,reset,pc,if_instr,retire_valid,retire_pc,retire_instr);
 initial begin
+ trace_file=$fopen("build/pipeline.csv","w");
+ if(!trace_file) $fatal(1,"FAIL opening trace file");
+ $fdisplay(trace_file,"cycle,if_pc,id_valid,id_pc,ex_valid,ex_pc,mem_valid,mem_pc,wb_valid,wb_pc,wb_instr,wb_write,wb_rd,wb_data,taken");
  $readmemh(`EXPECTED_FILE,expected);
  $dumpfile("build/pipeline.vcd");$dumpvars(0,tb_pipeline_top);
  repeat(2) @(negedge clk);
@@ -24,6 +28,10 @@ end
 always @(posedge clk) begin
  if(!reset) begin
   cycles=cycles+1;
+  $fdisplay(trace_file,"%0d,%08h,%0d,%08h,%0d,%08h,%0d,%08h,%0d,%08h,%08h,%0d,%0d,%08h,%0d",
+   cycles,pc,dut.id_valid,dut.id_pc,dut.ex_valid,dut.ex_pc,
+   dut.mem_valid,dut.mem_pc,dut.wb_valid,retire_pc,retire_instr,
+   dut.wb_we && dut.wb_rd!=0,dut.wb_rd,dut.wb_data,dut.taken);
   if(dut.id_valid && dut.ex_valid && dut.mem_valid && dut.wb_valid &&
     pc!=dut.id_pc && dut.id_pc!=dut.ex_pc && dut.ex_pc!=dut.mem_pc && dut.mem_pc!=dut.wb_pc &&
     pc!=dut.ex_pc && pc!=dut.mem_pc && pc!=dut.wb_pc &&
@@ -45,6 +53,8 @@ always @(posedge clk) begin
       $display("FAIL memory word %0d",i);$fatal(1);
      end
     if(!overlap || retired!=`EXPECTED_RETIRED) $fatal(1,"FAIL overlap or retirement count");
+    if(cycles!=retired+4+2*taken_branches) $fatal(1,"FAIL cycle accounting");
+    $fclose(trace_file);
     $display("PASS pipeline %s cycles=%0d retired=%0d overlap=1 taken=%0d",`PROGRAM_FILE,cycles,retired,taken_branches);
     $finish;
    end
