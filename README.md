@@ -1,116 +1,89 @@
 # 5-Stage Pipelined RISC-V Processor
 
-A Phase I project for Modern Computer Architecture at Newton School of Technology, Rishihood University. The processor is written in Verilog-2001 and runs a small RV32I subset through fetch, decode, execute, memory and write-back. The repository contains the RTL, tests, assembly programs, simulation figures and report. Programs separate data dependencies in software. EX resolves branches.
+Verilog-2001 Phase I project for Modern Computer Architecture at Newton School of Technology, Rishihood University.
 
-## Instructions and timing
+## 1. Install on Mac
 
-The processor supports ADD, SUB, ADDI, LW, SW, BEQ and BNE. NOP is `ADDI x0, x0, 0`. Reads of x0 always return zero.
-
-The PC starts at zero. All state uses one clock and a synchronous active-high reset. Instruction and data memory each hold 64 words. Addresses are byte addresses, so consecutive words are at 0, 4, 8 and so on. The memories support aligned word accesses within their local range. Invalid data reads return zero, and invalid writes have no effect. Unsupported instruction encodings cannot change state or retire. Exception handling is outside this prototype.
-
-Leave two NOPs between a register-writing instruction and its first dependent reader. Two independent instructions can fill those slots instead. This rule applies to load results, store data, address operands and branch operands. Register-file write-through lets ID read a result during its WB cycle. The processor has no EX/MEM forwarding or automatic stalls. A taken branch clears IF/ID and ID/EX, losing two instruction slots. A not-taken branch leaves them intact.
-
-## Files
-
-| Path | Contents |
-| --- | --- |
-| `rtl/common/` | ALU, register file, immediate decoding and control |
-| `rtl/memory/` | Instruction and data storage |
-| `rtl/pipeline/` | Stages, pipeline registers and integration |
-| `tb/` | Unit tests and self-checking processor test |
-| `programs/` | Assembly, word-per-line hex and expected states |
-| `scripts/` | Test runner, instruction reference model and VCD figure renderer |
-| `docs/report/` | IEEE report [PDF](docs/report/report.pdf), LaTeX source and references |
-| `docs/diagrams/` | Block and timing diagrams, with TeX sources |
-| `docs/waveforms/` | Dependency-program waveform figures |
-
-## Run the tests
-
-The tests require Python 3, a POSIX shell, Icarus Verilog (`iverilog` and `vvp`) and standard Unix file tools. Python uses only its standard library. They were run with Icarus Verilog 13.0. The checked-in hex files run without an assembler.
-
-Install the tools once on each computer. On macOS with [Homebrew](https://brew.sh/):
+Install [Homebrew](https://docs.brew.sh/Installation) first if `brew` is missing. Then run:
 
 ```sh
-brew install icarus-verilog python
+brew install git python icarus-verilog surfer
 ```
 
-On Ubuntu, including Ubuntu inside Windows WSL:
-
-```sh
-sudo apt-get update
-sudo apt-get install -y iverilog python3 git
-```
-
-Windows users should run the project commands inside WSL. No Python packages or FPGA tools are needed for these tests.
-
-Download and extract the repository ZIP, or clone it:
+## 2. Get the project and run tests
 
 ```sh
 git clone https://github.com/aryankinha/riscv-pipex.git
 cd riscv-pipex
-```
-
-Check the installation:
-
-```sh
 command -v iverilog
 command -v vvp
 python3 --version
-```
-
-If the script reports `iverilog: command not found`, Icarus Verilog is missing from the terminal's PATH. Making the script executable with `chmod` does not install it. Install the tools above, then open a new terminal if needed.
-
-From the repository folder:
-
-```sh
 ./scripts/run_all.sh
 ```
 
-The runner removes `build/`, compiles with `-g2001 -Wall` and runs every unit test and program. A failing assertion gives a nonzero exit status. VCD files go into `build/`. The processor test compares every register and data-memory word with its `.expected` file. The first 32 lines hold x0 through x31; the next 64 hold data words 0 through 63. All values are hexadecimal.
+If you downloaded a ZIP, extract it and open Terminal inside its folder instead of cloning. If the script reports permission denied, run `chmod +x scripts/run_all.sh` and retry. Missing tools must be installed in step 1; `chmod` does not install them.
 
-An instruction retires when a valid supported entry reaches its WB completion edge. NOPs, stores and branches count. Flushed entries do not. Cycles count rising edges after reset release through the final program instruction's completion. The testbench stops the simulation because the CPU has no halt instruction. Trailing NOPs fill unused instruction storage and fall outside each program's stopping boundary.
+Expected: 59 RTL unit cases and 19 program runs pass, along with eight reference-model cases and four encoding checks. The final line is `PASS reference comparisons=19`. A failing check returns a nonzero exit status. Each run replaces `build/` and writes VCD waveforms and CSV traces there.
 
-The pipeline test checks that valid instructions at distinct addresses occupy all stages at once. It also requires `cycles = retired + 4 + 2 * taken_branches`: four cycles fill the pipeline, and each taken branch loses two slots. This is a functional timing check, not a CPI comparison.
+## 3. View the pipeline
 
-`scripts/check_programs.py` executes the seven supported operations in a separate instruction model. It checks the four saved expected-state files and compares each RTL retirement's PC, instruction word and register write with the model. Eight hand-calculated model cases and four fixed encoding checks run before those comparisons.
-
-The full suite runs 19 programs: the original four, three directed edge cases and twelve repeatable random cases using seeds 0 through 11. The added cases cover repeated register destinations, x0, memory overwrites, the last memory word, invalid data addresses and branch shadows. Random cases combine the existing instructions with two-NOP padding and forward branches. All extra images and expected states stay under `build/`. The suite checks this subset and its timing rules; it does not establish full ISA compliance.
-
-Each run also writes `build/<program>.csv` alongside its VCD. CSV rows sample the pipeline immediately before the active edge. They contain the cycle, stage PCs and valid bits, the WB instruction and register write, and the branch-taken signal. PCs, instruction words and data are hexadecimal; counters, flags and register numbers are decimal. Read a stage PC only when its valid bit is set. `wb_write` excludes writes to x0, and `wb_rd` and `wb_data` matter only when it is set.
-
-## View the results
-
-For a quick check, run the test command above and look for PASS messages: 59 RTL unit cases, 19 program runs, eight reference-model cases and four encoding checks. A failed check returns a nonzero exit status.
-
-The report and checked-in PNG/PDF diagrams open in ordinary viewers without development tools. For interactive signal inspection, open a `build/*.vcd` file in a VCD viewer such as GTKWave. For example, if GTKWave is installed:
+After the tests finish, run:
 
 ```sh
-gtkwave build/04_dependencies.vcd
+surfer -c docs/waveforms/pipeline.sucl build/04_dependencies.vcd
 ```
 
-## Continuous integration
+The command file selects the clock, PC, five instruction stages and valid bits, then fits the timeline. It works with Surfer 0.7.0; use lowercase `-c`, not `-C`. Keep the viewer running while inspecting it. INFO messages in Terminal are normal.
 
-[Phase I test runs](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml) run on pushes and pull requests, and can also be started from the Actions tab with Run workflow. Each run uses a fresh Ubuntu checkout, installs Icarus Verilog and Python 3, and executes `./scripts/run_all.sh`. Open the run's test step to see the PASS output or the first failing check. CI tests the CPU and reference model; document and figure rendering remain separate commands below.
+Follow a non-NOP instruction through IF, ID, EX, MEM and WB, one clock at a time. Different instructions occupy the stages simultaneously. `00000013` is NOP; a valid bit of zero marks a bubble.
 
-## Rebuild the figures and report
+For branch flushing:
 
-To rebuild the waveform after running the tests, install Python 3, pdfLaTeX with TikZ, and Poppler (`pdftoppm`), then run:
+```sh
+surfer -c docs/waveforms/branches.sucl build/03_branches.vcd
+```
+
+Watch `taken`, the redirected PC, and the cleared ID/EX valid bits. Zoom into a few cycles so the values are readable. On Mac, use Shift+Command+4 for a screenshot or Shift+Command+5 for screen recording.
+
+## Processor scope
+
+ADD, SUB, ADDI, LW, SW, BEQ and BNE; NOP is ADDI x0,x0,0. Each memory holds 64 words. Reset is synchronous and active high; PC starts at zero and x0 reads zero.
+
+Separate dependent instructions with two NOPs or two independent instructions. There is no hardware data-hazard handling yet. Taken branches resolve in EX and flush two younger slots. The instruction reference model and edge-case tests are described in the report.
+
+## Report and figures
+
+- [IEEE report](docs/report/report.pdf), with [LaTeX source](docs/report/report.tex).
+- [Block diagram](docs/diagrams/block.png) and [waveform figure](docs/waveforms/dependencies.png).
+- `rtl/`: processor modules; `tb/`: tests; `programs/`: assembly, hex and expected states.
+
+Reading these files needs only a PDF/image viewer. To rebuild them, install a TeX distribution and Poppler first. If you do not already have TeX:
+
+```sh
+brew install --cask mactex-no-gui
+brew install poppler
+```
+
+Open a new terminal after installing MacTeX. Existing TinyTeX users can install a missing IEEE class with `tlmgr install ieeetran` instead of installing MacTeX. Check `kpsewhich IEEEtran.cls` and `kpsewhich tikz.sty` before rendering.
+
+From the repository root, rebuild the waveform with:
 
 ```sh
 python3 scripts/render_waveform.py
 ```
 
-To rebuild the report, install the IEEEtran LaTeX class, graphicx, cite, url and Latin Modern fonts, then run from this folder:
+Rebuild the report with:
 
 ```sh
 cd docs/report
 pdflatex -interaction=nonstopmode -halt-on-error report.tex
 pdflatex -interaction=nonstopmode -halt-on-error report.tex
+cd ../..
 ```
 
-The report uses the checked-in figures, so its rebuild does not need the figure renderer.
+## CI
 
-The reference-model and edge-case approach was compared with [Ario2006/risc-5-processor](https://github.com/Ario2006/risc-5-processor). The checker here was written for this processor's instruction subset and NOP scheduling rule.
+[Phase I tests](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml) install dependencies and run the full suite from a fresh checkout on every push and pull request. Open the test step for PASS output or the first failure. You can also select Run workflow in Actions.
 
 ## Video
 
@@ -118,7 +91,7 @@ The reference-model and edge-case approach was compared with [Ario2006/risc-5-pr
 
 ## Team
 
-Newton School of Technology, Rishihood University. Team lead: Aryan Kinha.
+Team lead: Aryan Kinha.
 
 | Member | Student ID | Email | Assigned role |
 | --- | --- | --- | --- |
@@ -128,18 +101,6 @@ Newton School of Technology, Rishihood University. Team lead: Aryan Kinha.
 | Jatin Verma | 2401010200 | jatin.verma2024@nst.rishihood.edu.in | Memory and write-back |
 | Jatin Kumar Singh | 2401010199 | jatin.singh2024@nst.rishihood.edu.in | Fetch and instruction memory |
 
-The repository history records these module contributions. The table also lists the files each member reviews and the topics they prepare for the viva.
-
-| Owner | Files and tasks | Viva focus |
-| --- | --- | --- |
-| Preetish | `rtl/common/alu.v`, `rtl/pipeline/ex_stage.v`, `rtl/pipeline/ex_mem_reg.v`, `tb/tb_alu.v`; review branch flushing with Aryan | ALU operations, EX operand selection, branch comparison and target, two-slot flush penalty |
-| Aryan | `rtl/pipeline/pipeline_top.v`, `tb/tb_pipeline_top.v`, `scripts/`, `programs/01_arithmetic.*`, `programs/03_branches.*`, `programs/04_dependencies.*`, report and figures | Stage connections, reset, valid bits, instruction overlap, retirement counts and test failures |
-| Divyanshu | `rtl/common/regfile.v`, `rtl/common/imm_gen.v`, `rtl/common/control_unit.v`, `rtl/pipeline/id_stage.v`, `rtl/pipeline/id_ex_reg.v`, `tb/tb_regfile.v`, `tb/tb_control.v` | Instruction fields, immediate decoding, control bits, x0 and why two NOPs are needed |
-| Jatin Verma | `rtl/memory/data_mem.v`, `rtl/pipeline/mem_stage.v`, `rtl/pipeline/mem_wb_reg.v`, `rtl/pipeline/wb_stage.v`, `programs/02_load_store.*` | Word indexing, read/write enables, store timing and the WB result choice |
-| Jatin Kumar Singh | `rtl/pipeline/if_stage.v`, `rtl/memory/instr_mem.v`, `rtl/pipeline/if_id_reg.v` | PC reset and sequential updates, hex loading, IF/ID capture and branch redirection |
-
-Preetish reviews branch behavior with Aryan, who coordinates processor integration and testing. Each member must review their own files and be able to explain the full IF, ID, EX, MEM, WB sequence.
-
 ## Phase II
 
-Phase II will add forwarding and stall logic, a single-cycle baseline, CPI comparison and benchmark programs. It will also cover synthesis and FPGA evaluation and add Results and Conclusion sections to the report.
+Planned: forwarding and stalls, a single-cycle baseline, CPI comparison, benchmarks, synthesis and FPGA evaluation, and final Results and Conclusion sections.

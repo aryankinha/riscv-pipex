@@ -1,0 +1,9 @@
+variable_add tb_pipeline_top.clk
+variable_add tb_pipeline_top.pc
+variable_add tb_pipeline_top.dut.taken
+variable_add tb_pipeline_top.dut.target
+variable_add tb_pipeline_top.dut.id_valid
+variable_add tb_pipeline_top.dut.ex_valid
+variable_add tb_pipeline_top.dut.mem_valid
+variable_add tb_pipeline_top.dut.wb_valid
+zoom_fit
