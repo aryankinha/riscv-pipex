@@ -1,106 +1,82 @@
 # 5-Stage Pipelined RISC-V Processor
 
-Verilog-2001 Phase I project for Modern Computer Architecture at Newton School of Technology, Rishihood University.
+Verilog-2001 project for Modern Computer Architecture at Newton School of Technology, Rishihood University. The five-stage core uses forwarding, a one-cycle load-use stall, and a two-slot flush on taken branches. A single-cycle core runs the same RV32I subset: ADD, SUB, ADDI, LW, SW, BEQ, and BNE.
 
-## 1. Install on Mac
+[Final IEEE report](docs/report/final.pdf) · [Report source](docs/report/final.tex) · [Phase I report](docs/report/report.pdf) · [Demo video](https://drive.google.com/file/d/1nLgo7ZT6DUxGFKc5UvzmLJH2ZwtNONWA/view) · [GitHub Actions](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml)
 
-Install [Homebrew](https://docs.brew.sh/Installation) first if `brew` is missing. Then run:
+## Run the tests on macOS
 
-```sh
-brew install git python icarus-verilog surfer
-```
-
-## 2. Get the project and run tests
+Install [Homebrew](https://docs.brew.sh/Installation) if needed. If using a ZIP, open Terminal in the extracted folder and skip the clone and `cd` commands.
 
 ```sh
+brew install git python icarus-verilog
 git clone https://github.com/aryankinha/riscv-pipex.git
 cd riscv-pipex
-command -v iverilog
-command -v vvp
-python3 --version
 ./scripts/run_all.sh
+cat build/benchmarks.csv
 ```
 
-If you downloaded a ZIP, extract it and open Terminal inside its folder instead of cloning. If the script reports permission denied, run `chmod +x scripts/run_all.sh` and retry. Missing tools must be installed in step 1; `chmod` does not install them.
+The suite checks 59 RTL unit cases and compares 25 program runs against the instruction model. It ends with `PASS reference comparisons=25`. Each run recreates `build/`.
 
-Expected: 59 RTL unit cases and 19 program runs pass, along with eight reference-model cases and four encoding checks. The final line is `PASS reference comparisons=19`. A failing check returns a nonzero exit status. Each run replaces `build/` and writes VCD waveforms and CSV traces there.
+## Results
 
-## 3. View the pipeline
+Both cores retire the same instructions. The pipeline's extra cycles come from fill, load-use stalls, and taken branches.
 
-After the tests finish, run:
+| Benchmark | Retired | Single-cycle cycles | Pipeline cycles | Pipeline CPI | Pipeline IPC |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ALU chain | 7 | 7 | 11 | 1.571 | 0.636 |
+| Load use | 14 | 14 | 21 | 1.500 | 0.667 |
+| Branch loop | 18 | 18 | 31 | 1.722 | 0.581 |
+
+The single-cycle core has CPI and IPC of 1.000 on all three benchmarks. On the routed iCE40HX8K design, the pipeline uses 5,843 logic cells at an estimated 42.74 MHz. The baseline uses 5,310 at 30.37 MHz. The baseline still finishes the short branch loop sooner at these estimated clocks.
+
+![Simulation checks and FPGA place-and-route results](docs/verification.png)
+
+## Inspect the waveforms
+
+Run the tests first. Open each view separately.
 
 ```sh
-surfer -c docs/waveforms/pipeline.sucl build/04_dependencies.vcd
-```
-
-The command file selects the clock, PC, five instruction stages and valid bits, then fits the timeline. It works with Surfer 0.7.0; use lowercase `-c`, not `-C`. Keep the viewer running while inspecting it. INFO messages in Terminal are normal.
-
-Follow a non-NOP instruction through IF, ID, EX, MEM and WB, one clock at a time. Different instructions occupy the stages simultaneously. `00000013` is NOP; a valid bit of zero marks a bubble.
-
-For branch flushing:
-
-```sh
+brew install surfer
+surfer -c docs/waveforms/load_use.sucl build/load_use.vcd
 surfer -c docs/waveforms/branches.sucl build/03_branches.vcd
 ```
 
-Watch `taken`, the redirected PC, and the cleared ID/EX valid bits. Zoom into a few cycles so the values are readable. On Mac, use Shift+Command+4 for a screenshot or Shift+Command+5 for screen recording.
+In the load-use trace, follow 65–85 ns. The stall holds PC and ID while EX receives a bubble. The dependent ADDI then enters EX as its load reaches WB. In the branch view, follow `taken` to the PC redirect and the cleared ID and EX entries.
 
-## Processor scope
+![Load-use stall in the Icarus Verilog waveform](docs/waveforms/load_use.png)
 
-ADD, SUB, ADDI, LW, SW, BEQ and BNE; NOP is ADDI x0,x0,0. Each memory holds 64 words. Reset is synchronous and active high; PC starts at zero and x0 reads zero.
+## Reproduce the FPGA run
 
-Separate dependent instructions with two NOPs or two independent instructions. There is no hardware data-hazard handling yet. Taken branches resolve in EX and flush two younger slots. The instruction reference model and edge-case tests are described in the report.
+```sh
+brew install yosys nextpnr-ice40
+./scripts/run_fpga.sh
+cat build/fpga/summary.csv
+```
 
-## Report and figures
+This routes both cores on iCE40HX8K (CT256) with the same branch-loop ROM. The estimates use automatic pin placement. Physical-board testing remains pending.
 
-- [IEEE report](docs/report/report.pdf), with [LaTeX source](docs/report/report.tex).
-- [Block diagram](docs/diagrams/block.png) and [waveform figure](docs/waveforms/dependencies.png).
-- `rtl/`: processor modules; `tb/`: tests; `programs/`: assembly, hex and expected states.
+## Files
 
-Reading these files needs only a PDF/image viewer. To rebuild them, install a TeX distribution and Poppler first. If you do not already have TeX:
+- `rtl/` holds both cores. `tb/` holds the testbenches.
+- `programs/benchmarks/` holds the assembly, hex, and expected state for each benchmark.
+- `docs/` holds the IEEE reports, diagrams, and waveforms. To rebuild the Phase II figure and report, use TeX with IEEEtran and TikZ, plus Poppler. Run the tests first.
 
 ```sh
 brew install --cask mactex-no-gui
 brew install poppler
-```
-
-Open a new terminal after installing MacTeX. Existing TinyTeX users can install a missing IEEE class with `tlmgr install ieeetran` instead of installing MacTeX. Check `kpsewhich IEEEtran.cls` and `kpsewhich tikz.sty` before rendering.
-
-From the repository root, rebuild the waveform with:
-
-```sh
-python3 scripts/render_waveform.py
-```
-
-Rebuild the report with:
-
-```sh
+python3 scripts/render_waveform.py load_use
 cd docs/report
-pdflatex -interaction=nonstopmode -halt-on-error report.tex
-pdflatex -interaction=nonstopmode -halt-on-error report.tex
-cd ../..
+pdflatex -interaction=nonstopmode -halt-on-error final.tex
+pdflatex -interaction=nonstopmode -halt-on-error final.tex
 ```
-
-## CI
-
-[Phase I tests](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml) install dependencies and run the full suite from a fresh checkout on every push and pull request. Open the test step for PASS output or the first failure. You can also select Run workflow in Actions.
-
-## Video
-
-[Video](https://drive.google.com/drive/folders/1zvoQiCziL2G4nigfQbIoxcu8opQLb8yZ?usp=sharing)
 
 ## Team
 
-Team lead: Aryan Kinha.
-
-| Member | Student ID | Email | Assigned role |
+| Member | Student ID | Email | Module ownership |
 | --- | --- | --- | --- |
+| Aryan Kinha (lead) | 2401020013 | aryan.kinha2024@nst.rishihood.edu.in | Integration and testing |
 | Preetish Ubhrani | 2401020050 | preetish.ubhrani2024@nst.rishihood.edu.in | Execute and branch logic |
-| Aryan Kinha | 2401020013 | aryan.kinha2024@nst.rishihood.edu.in | Team lead, integration and testing |
 | Divyanshu Singh | 2401010161 | divyanshu.singh2024@nst.rishihood.edu.in | Decode and control |
 | Jatin Verma | 2401010200 | jatin.verma2024@nst.rishihood.edu.in | Memory and write-back |
 | Jatin Kumar Singh | 2401010199 | jatin.singh2024@nst.rishihood.edu.in | Fetch and instruction memory |
-
-## Phase II
-
-Planned: forwarding and stalls, a single-cycle baseline, CPI comparison, benchmarks, synthesis and FPGA evaluation, and final Results and Conclusion sections.

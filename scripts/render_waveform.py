@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Render the dependency-program VCD with a TeX drawing."""
+"""Render the instruction and hazard traces from VCD."""
+import argparse
 from pathlib import Path
 import subprocess
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('view', nargs='?', default='dependencies', choices=['dependencies', 'load_use'])
+view = parser.parse_args().view
+hazards = view == 'load_use'
 root = Path(__file__).resolve().parents[1]
-source = root / 'build/04_dependencies.vcd'
+source = root / 'build' / ('load_use.vcd' if hazards else '04_dependencies.vcd')
 scopes, signals, changes = [], {}, {}
 time = 0
 for line in source.read_text().splitlines():
@@ -36,35 +41,53 @@ def value(name, t):
 
 rows = [('PC', 'pc'), ('IF', 'if_instr'), ('ID', 'dut.id_instr'),
         ('EX', 'dut.ex_instr'), ('MEM', 'dut.mem_instr'), ('WB', 'dut.wb_instr')]
+if hazards:
+    rows += [('stall', 'dut.stall'), ('EX valid', 'dut.ex_valid')]
+height, clock_y, first_row = (10, 9.7, 8.5) if hazards else (8.2, 7.7, 6.5)
 text = [r'\documentclass{article}',
-        r'\usepackage[paperwidth=18cm,paperheight=8.2cm,margin=0.2cm]{geometry}',
+        r'\usepackage[paperwidth=18cm,paperheight=%scm,margin=0.2cm]{geometry}' % height,
         r'\usepackage{tikz}\pagestyle{empty}',
         r'\pdfinfo{/Author (RISC-V CPU) /Creator () /Producer ()}',
         r'\begin{document}\noindent\begin{tikzpicture}[x=1.25cm,y=0.85cm]',
-        r'\node[anchor=east] at (1,7.7) {clk};']
+        r'\node[anchor=east] at (1,%.2f) {clk};' % clock_y]
 # Samples are one picosecond after each edge, in the VCD timescale.
-start, count = 25001, 12
+start, count = (35001, 12) if hazards else (25001, 12)
+begin = start - 1
+period = 10000
+end = begin + count * period
+low, high = clock_y - .3, clock_y + .2
+level = {'0': low, '1': high}
+y = level[value('clk', begin)]
+clock = [f'(1.10,{y:.2f})']
+for when, bits in changes[signals['tb_pipeline_top.clk']]:
+    if begin < when < end:
+        x = 1.1 + (when - begin) / period
+        clock += [f'({x:.2f},{y:.2f})', f'({x:.2f},{level[bits]:.2f})']
+        y = level[bits]
+clock.append(f'({count + 1.1:.2f},{y:.2f})')
+text.append(r'\draw ' + ' -- '.join(clock) + ';')
 for c in range(count):
-    x = c + 1.1
-    t = start + c * 10000
-    text.append(r'\draw (%.2f,7.4) -- (%.2f,7.9) -- (%.2f,7.9) -- (%.2f,7.4) -- (%.2f,7.4);' % (x,x,x+.5,x+.5,x+1))
-    text.append(r'\node[font=\scriptsize] at (%.2f,8.3) {%d};' % (x+.5,t//1000))
+    t = start + c * period
+    text.append(r'\node[font=\scriptsize] at (%.2f,%.2f) {%d};' % (c+1.6,clock_y+.6,t//1000))
     assert value('clk',t) == '1'
 for r, (label, signal) in enumerate(rows):
-    y = 6.5-r
+    y = first_row-r
     text.append(r'\node[anchor=east] at (1,%.2f) {%s};' % (y,label))
     for c in range(count):
-        bits = value(signal,start+c*10000)
-        word = 'unknown' if 'x' in bits or 'z' in bits else f'{int(bits,2):08x}'
+        bits = value(signal,start+c*period)
+        if signal in ('dut.stall', 'dut.ex_valid'):
+            word = bits
+        else:
+            word = 'unknown' if 'x' in bits or 'z' in bits else f'{int(bits,2):08x}'
         x=c+1.1
         text.append(r'\draw (%.2f,%.2f) rectangle (%.2f,%.2f);' % (x,y-.32,x+1,y+.32))
         text.append(r'\node[font=\tiny\ttfamily] at (%.2f,%.2f) {%s};' % (x+.5,y,word))
-text += [r'\node[font=\small] at (7,-0.15) {Time in ns; bus values in hexadecimal, sampled after rising edges};',
+text += [r'\node[font=\small] at (7,-0.15) {Nanoseconds. Buses are hexadecimal and sampled after rising edges.};',
          r'\end{tikzpicture}\end{document}']
 tex = root / 'build/waveform.tex'
 tex.write_text('\n'.join(text)+'\n')
 subprocess.run(['pdflatex','-interaction=batchmode','-halt-on-error','-output-directory=build',str(tex)],cwd=root,check=True)
-out = root / 'docs/waveforms/dependencies'
+out = root / 'docs/waveforms' / view
 out.parent.mkdir(parents=True, exist_ok=True)
 subprocess.run(['pdftoppm','-png','-singlefile','-scale-to','2400',str(root/'build/waveform.pdf'),str(out)],check=True)
 out.with_suffix('.pdf').write_bytes((root/'build/waveform.pdf').read_bytes())

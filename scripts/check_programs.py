@@ -157,8 +157,8 @@ def directed_cases():
 
 def random_case(seed):
     rng = random.Random(seed)
-    words = [immediate(1, 0, rng.randint(-64, -1)), NOP, NOP,
-             immediate(2, 0, rng.randint(1, 64)), NOP, NOP]
+    words = [immediate(1, 0, rng.randint(-64, -1)),
+             immediate(2, 0, rng.randint(1, 64))]
     for index in range(18):
         rd, rs1, rs2 = (rng.choice([0, 1, 2, 3, 4, 5, 6, 7, 31]) for _ in range(3))
         kind = rng.randrange(7 if index < 15 else 5)
@@ -171,29 +171,68 @@ def random_case(seed):
         elif kind == 4:
             word = store(rs2, 0, 4 * rng.randrange(64))
         else:
-            word = branch(rs1, rs2, rng.choice([24, 36]), kind == 6)
-        words.extend([word, NOP, NOP])
+            word = branch(rs1, rs2, rng.choice([8, 12]), kind == 6)
+        words.append(word)
     return words + [NOP]
 
 
-def simulate_case(name, words, state, events):
+def simulate(name, image, expected, words, events, baseline=False, stalls=None):
     if not 5 <= len(words) <= 64:
         raise ValueError(f'{name}: program does not fit instruction memory')
-    base = BUILD / name
-    base.with_suffix('.hex').write_text(''.join(f'{word:08x}\n' for word in words + [NOP] * (64 - len(words))))
-    base.with_suffix('.expected').write_text(''.join(f'{word:08x}\n' for word in state))
+    top = 'single_cycle' if baseline else 'pipeline_top'
+    output = 'single_cycle' if baseline else 'pipeline'
     rtl = sorted(str(path.relative_to(ROOT)) for path in (ROOT / 'rtl').rglob('*.v'))
-    command = ['iverilog', '-g2001', '-Wall', '-s', 'tb_pipeline_top',
-               f'-DPROGRAM_FILE="build/{name}.hex"', f'-DEXPECTED_FILE="build/{name}.expected"',
+    command = ['iverilog', '-g2001', '-Wall', '-s', f'tb_{top}',
+               f'-DPROGRAM_FILE="{image.relative_to(ROOT)}"',
+               f'-DEXPECTED_FILE="{expected.relative_to(ROOT)}"',
                f'-DLAST_PC={4 * (len(words) - 1)}', f'-DEXPECTED_RETIRED={len(events)}',
-               '-o', 'build/model.vvp', *rtl, 'tb/tb_pipeline_top.v']
+               '-o', f'build/{output}.vvp', *rtl, f'tb/tb_{top}.v']
+    if stalls is not None:
+        command.insert(5, f'-DEXPECTED_STALLS={stalls}')
     subprocess.run(command, cwd=ROOT, check=True)
-    result = subprocess.run(['vvp', 'build/model.vvp'], cwd=ROOT, text=True, capture_output=True, check=True)
-    if 'PASS pipeline' not in result.stdout:
+    result = subprocess.run(['vvp', f'build/{output}.vvp'], cwd=ROOT, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+    if 'PASS ' + ('single-cycle' if baseline else 'pipeline') not in result.stdout:
         raise ValueError(f'{name}: missing PASS result')
-    for suffix in ('csv', 'vcd'):
-        (BUILD / ('pipeline.' + suffix)).replace(base.with_suffix('.' + suffix))
-    return check_trace(base.with_suffix('.csv'), events)
+    trace = BUILD / f'{name}.csv'
+    (BUILD / f'{output}.csv').replace(trace)
+    if not baseline:
+        (BUILD / 'pipeline.vcd').replace(BUILD / f'{name}.vcd')
+    return check_trace(trace, events)
+
+
+def simulate_case(name, words, state, events):
+    image, expected = BUILD / f'{name}.hex', BUILD / f'{name}.expected'
+    image.write_text(''.join(f'{word:08x}\n' for word in words + [NOP] * (64 - len(words))))
+    expected.write_text(''.join(f'{word:08x}\n' for word in state))
+    return simulate(name, image, expected, words, events)
+
+
+def benchmark():
+    fixtures = {'alu_chain': 0, 'load_use': 3, 'branch_loop': 1}
+    fields = ['program', 'retired', 'single_cycles', 'pipeline_cycles',
+              'stalls', 'taken', 'single_cpi', 'pipeline_cpi', 'single_ipc', 'pipeline_ipc']
+    with (BUILD / 'benchmarks.csv').open('w', newline='') as stream:
+        writer = csv.writer(stream)
+        writer.writerow(fields)
+        for name, stalls in fixtures.items():
+            image = ROOT / 'programs' / 'benchmarks' / f'{name}.hex'
+            expected = image.with_suffix('.expected')
+            words = fixture_words(image)
+            state, events = reference(words)
+            if state != [int(word, 16) for word in expected.read_text().split()]:
+                raise ValueError(f'{name}: expected-state fixture disagrees with reference')
+            pipe = simulate(name, image, expected, words, events, stalls=stalls)
+            single = simulate(f'{name}_single', image, expected, words, events, baseline=True)
+            retired = len(events)
+            with (BUILD / f'{name}.csv').open(newline='') as trace:
+                taken = sum(row['taken'] == '1' for row in csv.DictReader(trace))
+            writer.writerow([name, retired, single, pipe, stalls, taken,
+                             f'{single / retired:.3f}', f'{pipe / retired:.3f}',
+                             f'{retired / single:.3f}', f'{retired / pipe:.3f}'])
+            print(f'PASS benchmark {name} retired={retired} single_cycles={single} '
+                  f'pipeline_cycles={pipe} stalls={stalls} taken={taken}')
+    return 2 * len(fixtures)
 
 
 def main():
@@ -221,6 +260,7 @@ def main():
         cycles = simulate_case(name, words, state, events)
         print(f'PASS reference {name} cycles={cycles} retired={len(events)}')
         checked += 1
+    checked += benchmark()
     print(f'PASS reference comparisons={checked}')
 
 

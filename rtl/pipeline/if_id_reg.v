@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 module if_id_reg(
  input clk, reset,
- input flush,
+ input flush, hold,
  input valid_in,
  output reg valid,
  input [31:0] pc_in,
@@ -13,7 +13,7 @@ always @(posedge clk) begin
   valid <= 0;
   pc <= 0;
   instr <= 32'h00000013;
- end else begin
+ end else if (!hold) begin
   valid <= valid_in;
   pc <= pc_in;
   instr <= instr_in;

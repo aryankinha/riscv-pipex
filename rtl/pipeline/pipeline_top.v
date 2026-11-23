@@ -1,8 +1,9 @@
 `timescale 1ns/1ps
 module pipeline_top #(parameter HEX_FILE="programs/01_arithmetic.hex")
  (input clk, reset, output [31:0] pc, if_instr,
- output retire_valid, output [31:0] retire_pc, retire_instr);
-wire taken, wb_we, supported;
+ output retire_valid, output [31:0] retire_pc, retire_instr,
+ output retire_write, output [4:0] retire_rd, output [31:0] retire_data);
+wire taken, stall, wb_we, supported;
 wire [31:0] target, wb_data;
 wire id_valid;
 wire [31:0] id_pc;
@@ -58,10 +59,15 @@ wire dec_alu_sub;
 wire dec_branch;
 wire dec_branch_ne;
 wire [31:0] ex_result, ex_store_data, mem_load_data;
-if_stage #(HEX_FILE) fetch(clk,reset,taken,target,pc,if_instr);
+wire decode_reads_rs2 = !dec_alu_imm || dec_mem_write;
+// An EX load makes its data available for forwarding from WB one cycle later.
+assign stall = id_valid && supported && ex_valid && ex_mem_read && ex_rd != 0 &&
+               (ex_rd == dec_rs1 || (decode_reads_rs2 && ex_rd == dec_rs2));
+if_stage #(HEX_FILE) fetch(clk,reset,taken,stall,target,pc,if_instr);
 if_id_reg id_pipe(.clk(clk),
  .reset(reset),
  .flush(taken),
+ .hold(stall),
  .valid_in(1'b1),
  .valid(id_valid),
  .pc_in(pc),
@@ -71,7 +77,7 @@ if_id_reg id_pipe(.clk(clk),
 id_stage decode(clk,reset,wb_we,wb_rd,wb_data,id_instr,dec_rs1,dec_rs2,dec_rd,dec_a,dec_b,dec_imm,dec_reg_write,dec_mem_read,dec_mem_write,dec_alu_imm,dec_alu_sub,dec_branch,dec_branch_ne,supported);
 id_ex_reg ex_pipe(.clk(clk),
  .reset(reset),
- .flush(taken),
+ .flush(taken || stall),
  .valid_in(id_valid && supported),
  .valid(ex_valid),
  .pc_in(id_pc),
@@ -104,7 +110,12 @@ id_ex_reg ex_pipe(.clk(clk),
  .branch(ex_branch),
  .branch_ne_in(dec_branch_ne),
  .branch_ne(ex_branch_ne));
-ex_stage execute(ex_valid,ex_alu_imm,ex_alu_sub,ex_branch,ex_branch_ne,ex_pc,ex_a,ex_b,ex_imm,ex_result,ex_store_data,target,taken);
+wire [31:0] forwarded_a, forwarded_b;
+forwarding bypass(ex_rs1, ex_rs2, mem_valid && mem_reg_write, mem_mem_read,
+                  mem_rd, mem_result, wb_we, wb_rd, wb_data, ex_a, ex_b,
+                  forwarded_a, forwarded_b);
+ex_stage execute(ex_valid,ex_alu_imm,ex_alu_sub,ex_branch,ex_branch_ne,ex_pc,
+                 forwarded_a,forwarded_b,ex_imm,ex_result,ex_store_data,target,taken);
 ex_mem_reg mem_pipe(.clk(clk),
  .reset(reset),
  .valid_in(ex_valid),
@@ -156,4 +167,7 @@ wb_stage writeback(wb_valid,wb_reg_write,wb_mem_read,wb_result,wb_load_data,wb_w
 assign retire_valid=wb_valid;
 assign retire_pc=wb_pc;
 assign retire_instr=wb_instr;
+assign retire_write = wb_we && wb_rd != 0;
+assign retire_rd = retire_write ? wb_rd : 5'b0;
+assign retire_data = retire_write ? wb_data : 32'b0;
 endmodule
