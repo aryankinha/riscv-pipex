@@ -1,0 +1,100 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.78in,letterpaper]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,booktabs,tabularx,xcolor,hyperref}
+\definecolor{navy}{HTML}{14384B}
+\definecolor{teal}{HTML}{006957}
+\hypersetup{colorlinks=true,linkcolor=teal,urlcolor=teal,pdftitle={Five-Stage Pipelined RISC-V Processor: FPGA Synthesis and Timing},pdfauthor={Modern Computer Architecture Project Team},pdfcreator={},pdfproducer={}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\renewcommand{\arraystretch}{1.16}
+\newcommand{\sectionline}[1]{\vspace{6pt}{\large\bfseries\color{navy}#1}\par}
+\begin{document}
+{\small\color{teal}\bfseries MODERN COMPUTER ARCHITECTURE}\par
+{\huge\bfseries\color{navy} RISC-V Pipeline FPGA Synthesis and Timing}\par
+{\large Five-stage pipelined RISC-V processor and single-cycle baseline}\par
+Newton School of Technology, Rishihood University\par
+\smallskip\hrule\smallskip
+
+Both designs met the 12 MHz internal clock target on the iCE40HX8K. The pipeline used 10.0\% more logic cells and reached an estimated 42.74 MHz, compared with 30.37 MHz for the baseline. Its extra cycles made the short branch loop take longer, even at the higher estimated clock.
+
+\sectionline{Designs and build settings}
+Both Verilog cores execute the same seven instructions from RV32I. The single-cycle core completes one instruction per cycle on these workloads. The pipelined core splits execution into IF, ID, EX, MEM and WB. It forwards values, stalls for one cycle when the next instruction needs a load result, and flushes two slots when a branch is taken.
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Top modules & \texttt{single\_cycle\_top}, \texttt{pipeline\_top} \\
+Target & Lattice iCE40HX8K, CT256, 12 MHz internal clock, nextpnr seed 1 \\
+Workload image & \texttt{programs/benchmarks/branch\_loop.hex} for both tops \\
+Tools & Yosys 0.71+77 (11d972c20), nextpnr-ice40 0.11.1 (15b77f5f) \\
+RTL snapshot & \texttt{eb1dc096a823}, checked on 25 November 2026 \\
+\bottomrule
+\end{tabularx}
+
+\sectionline{Resources and timing}
+\begin{tabularx}{\linewidth}{@{}Xrr@{}}
+\toprule
+Metric & Single-cycle & Pipeline \\
+\midrule
+Mapped four-input LUTs & 2,698 & 2,950 \\
+Mapped flip-flops (all \texttt{SB\_DFF*} variants) & 2,577 & 3,019 \\
+Mapped carry primitives & 167 & 167 \\
+Placed logic cells (of 7,680) & 5,310 (69.1\%) & 5,843 (76.1\%) \\
+Block RAMs (of 32) & 0 & 0 \\
+Package I/O pins (of 206) & 169 & 169 \\
+Post-route critical period (ns) & 32.93 & 23.40 \\
+Estimated maximum clock (MHz) & 30.37 & 42.74 \\
+12 MHz internal clock target & Pass & Pass \\
+\bottomrule
+\end{tabularx}
+
+Yosys reports LUTs, flip-flops and carry primitives before packing. nextpnr counts the packed logic cells after placement. Yosys mapped the instruction image and writable arrays into logic on this target. Both cores expose the same fetch and retirement signals, which account for much of the I/O usage.
+
+The baseline's longest internal path runs from the program counter to a register-file data input. The pipeline's longest path runs from the retirement side through forwarding and branch logic back to the program counter. Routing accounts for 23.46 ns in the baseline and 18.34 ns in the pipeline.
+
+\newpage
+{\huge\bfseries\color{navy} Performance and verification}\par
+\smallskip\hrule\smallskip
+\sectionline{Architectural benchmarks}
+Both cores retired the same instruction sequence for each benchmark. CPI is cycles per retired instruction. IPC is retired instructions per cycle. The single-cycle core achieved CPI and IPC of 1.000 on all three workloads.
+
+\begin{tabularx}{\linewidth}{@{}Xrrrrr@{}}
+\toprule
+Benchmark & Retired & Baseline cycles & Pipeline cycles & Pipe CPI & Pipe IPC \\
+\midrule
+ALU chain & 7 & 7 & 11 & 1.571 & 0.636 \\
+Load use & 14 & 14 & 21 & 1.500 & 0.667 \\
+Branch loop & 18 & 18 & 31 & 1.722 & 0.581 \\
+\bottomrule
+\end{tabularx}
+
+The pipeline needs 31 cycles for the branch loop. After counting 18 instructions and four cycles to fill the pipeline, one cycle comes from a load-use stall and eight come from four taken branches. Dividing cycles by the estimated maximum clock gives 0.593 microseconds for the baseline and 0.725 microseconds for the pipeline. Over the same loop, the rates are 30.37 and 24.82 million retired instructions per second. Both FPGA builds used this loop's ROM image.
+
+\sectionline{Checks run on a fresh checkout}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Check & Result \\
+\midrule
+RTL simulation & 59 unit cases and 25 program runs passed. The program checker compares retirement against an instruction model. \\
+RTL lint & Verilator passed on both top modules. \\
+Synthesis & Yosys \texttt{check -assert} passed with zero structural problems for both mapped netlists. \\
+Mapped simulation & Zero-delay iCE40 cell simulation matched the RTL branch-loop retirement trace cycle by cycle on both cores. \\
+Place and route & nextpnr routed both designs and met the internal 12 MHz clock target. \\
+\bottomrule
+\end{tabularx}
+
+At each cycle, the mapped test compared whether an instruction retired, its address and instruction word, and its register write. The traces agreed for all 18 baseline cycles and 31 pipeline cycles.
+
+\sectionline{Reproduce the results}
+On macOS, install the tools listed in the project README, then run from the repository root:
+\begin{verbatim}
+./scripts/run_all.sh
+./scripts/run_fpga.sh
+cat build/benchmarks.csv build/fpga/summary.csv
+\end{verbatim}
+Run simulation first because it recreates \texttt{build/}. The FPGA script writes each top's synthesis log and netlist, plus the final routing log and timing JSON, under \texttt{build/fpga/}.
+
+\sectionline{Scope of the results}
+The clock estimates cover one ROM image and one placement seed. nextpnr chose pin assignments automatically. Physical-board operation, external I/O timing and power remain unmeasured. The mapped simulation checks logic at zero delay. The clock estimate comes from the routed timing report.
+
+\end{document}

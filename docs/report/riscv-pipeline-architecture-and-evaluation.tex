@@ -1,7 +1,7 @@
 \documentclass[conference]{IEEEtran}
 \usepackage{graphicx,cite,url}
 \renewcommand{\ttdefault}{lmtt}
-\pdfinfo{/Author (RISC-V CPU) /Creator () /Producer () /Title (5-Stage Pipelined RISC-V Processor)}
+\pdfinfo{/Author (RISC-V CPU) /Creator () /Producer () /Title (Five-Stage Pipelined RISC-V Processor: Architecture and Evaluation)}
 \newcommand{\phaseTwoReport}{}
 \title{5-Stage Pipelined RISC-V Processor}
 \author{\IEEEauthorblockN{Aryan Kinha, Preetish Ubhrani, Divyanshu Singh,\\Jatin Kumar Singh, Jatin Verma}
@@ -11,20 +11,20 @@
 \maketitle
 
 \begin{abstract}
-We implemented a five-stage RISC-V processor in Verilog and compared it with a single-cycle core that executes the same instruction subset. The pipeline forwards results to EX, stalls for one cycle on an immediate load dependency, and clears two younger slots on a taken branch. Three unpadded benchmarks check arithmetic dependencies, load-use dependencies, and a loop with both branch outcomes. Both cores match the same instruction-by-instruction model. On a routed Lattice iCE40HX8K implementation using the branch benchmark ROM, the pipeline reached an estimated 42.74 MHz and the single-cycle core reached 30.37 MHz. Pipeline fill, stalls, and taken branches increased the cycle count enough that the single-cycle core still had the lower estimated completion time on that workload.
+We built two Verilog cores for the same seven RV32I instructions: a single-cycle baseline and a five-stage pipeline. The pipeline forwards results to the execute stage, stalls for one cycle when the next instruction needs a load result, and discards two younger instructions on a taken branch. Both cores match a software instruction model on three benchmarks that run without NOP padding. With the branch-loop program on a routed Lattice iCE40HX8K, the estimated maximum clock was 42.74 MHz for the pipeline and 30.37 MHz for the baseline. The baseline still finished the short loop sooner because it ran in fewer cycles.
 \end{abstract}
 \begin{IEEEkeywords}
 RISC-V, Verilog, pipelining, forwarding, load-use interlock, FPGA
 \end{IEEEkeywords}
 
 \section{Literature Review}
-The RISC-V unprivileged specification defines what each instruction does to architectural state and how it is encoded~\cite{isa}. The implementation can split those operations across cycles as long as the program observes the required behavior. We used the same instruction semantics for the pipeline, the single-cycle baseline, and the software model.
+The RISC-V unprivileged specification describes how instructions are encoded and what they change~\cite{isa}. Both cores and the software model follow the same instruction rules. The cores differ in how they split the work across clock cycles.
 
-In a single-cycle datapath, fetch, decode, execution, memory access and write-back all fit between two active clock edges. The longest path fixes the clock period. In a multi-cycle datapath, one instruction can take several cycles. Splitting it into steps gives the designer a chance to reuse hardware at the cost of control state and intermediate registers~\cite{patterson}. Pipelining also splits the work, but overlaps successive instructions. It can improve throughput even when one instruction takes multiple cycles to complete~\cite{harris}.
+A single-cycle datapath fetches, decodes, executes and writes back between two active clock edges. It also fits any data-memory access into that cycle. The longest path sets the clock period. A multi-cycle datapath spreads one instruction over several cycles so it can reuse hardware, with extra state to track each step~\cite{patterson}. Pipelining lets different instructions occupy different stages. That overlap can raise throughput even though each instruction takes several cycles~\cite{harris}.
 
-Overlap creates three common hazards. A structural hazard occurs when two stages need the same resource, such as a single memory port shared by fetch and load/store. Separate memories avoid that conflict here. A data hazard occurs when an instruction needs a value from an earlier instruction. A bypass can supply a result from a later stage, and an interlock can hold the consumer when the value is still being read from memory. Instructions in this design read and write registers in order, so read-after-write dependencies are the ones that need handling. A control hazard occurs when fetch runs ahead of a branch decision. Prediction, earlier resolution, and flushing are common responses~\cite{patterson,harris}.
+Two stages may need the same resource at once. Separate instruction and data memories avoid that conflict in this design. A read-after-write dependency needs a value another instruction is still producing. Forwarding supplies it from a later stage when available. An interlock holds the dependent instruction if the load result is still in memory. A control hazard arises when fetch runs ahead of a branch decision. Prediction, earlier resolution and flushing are common responses~\cite{patterson,harris}.
 
-PicoRV32 shows how a small core can expose a simple memory interface and make register-file design choices independently of the ISA~\cite{pico}. Ibex couples a configurable core with a larger verification effort~\cite{ibex}. VexRiscv offers configurable bypass and interlock behavior~\cite{vex}, whereas CV32E40P is an in-order pipeline with its own prescribed timing and interfaces~\cite{cv}. Our prototype keeps fixed stage boundaries and local memories. The student \texttt{risc-5-processor} project illustrates the use of an instruction model and repeatable randomized tests to check a processor alongside directed cases~\cite{comparison}. We use those checks to find errors that can disappear from the final machine state after later writes.
+PicoRV32 is a small core with a simple memory interface and a configurable register file~\cite{pico}. Ibex documents its verification work alongside a configurable core~\cite{ibex}. VexRiscv offers configurable bypasses and interlocks~\cite{vex}. CV32E40P uses an in-order pipeline with documented timing and interfaces~\cite{cv}. We chose fixed stage boundaries and local memories. The student \texttt{risc-5-processor} project pairs directed tests with repeatable randomized cases and an instruction model~\cite{comparison}. Checking instructions as they retire catches errors that later writes can hide.
 
 \section{Proposed Solution}
 \subsection{Instruction subset and memory}
@@ -85,7 +85,7 @@ Table~\ref{tab:ctrl} lists the control bits. The load bit also selects memory da
 \subsection{Forwarding and the load-use interlock}
 Each EX source first checks for a valid, nonzero destination in EX/MEM. A matching ALU result there takes priority over one in MEM/WB because EX/MEM holds the more recent instruction. An EX/MEM load cannot forward its effective address as a register result. Its read data becomes available in MEM/WB, where WB supplies it to the consumer. The register file also passes a same-edge WB write to an ID read of that destination.
 
-Forwarded A serves as the register operand for both arithmetic and address calculation. Forwarded B goes to the ALU on register-register operations, to the branch comparison, or to the store-data input. For a store the immediate still goes to the ALU for address calculation. This distinction matters when a load supplies the store value instead of its address.
+Forwarded A can supply an arithmetic input or the base address for a load or store. Forwarded B can supply the second register operand, a branch comparison or the value a store writes. A store uses its immediate to calculate the address even when forwarding supplies the value to write.
 
 The interlock checks a valid load in EX against a valid consumer in ID. Every supported instruction uses rs1. Only ADD, SUB, SW, BEQ and BNE use rs2, so an immediate that happens to share those bit positions cannot cause a false stall. The check also ignores loads to x0. On a match, the next edge holds the PC and IF/ID and inserts an invalid entry into ID/EX. The load advances. One cycle later the consumer enters EX and receives the value from WB. Reset and taken-branch redirection have priority over a hold.
 
@@ -94,11 +94,11 @@ The baseline uses the same decoder, ALU, memory modules and write-back selection
 
 \section{Results and Discussion}
 \subsection{Simulation and retirement checks}
-Both cores were simulated with Icarus Verilog~\cite{icarus}. The ALU, register file and decoder pass 59 unit cases. The program suite checks 22 pipeline runs and three baseline runs. These include the four Phase I programs, three directed edge cases, twelve repeatable unpadded random programs, and three benchmark binaries run on both cores. GNU RISC-V binutils assembled the benchmark source. A separate instruction model checks the retired PC, instruction and register write in order. The benches also compare all 32 register entries and 64 data words against the expected final state.
+We used Icarus Verilog for RTL simulation~\cite{icarus}. The ALU, register file and decoder passed 59 unit cases. We also checked 22 pipeline runs and three baseline runs. The pipeline suite includes four Phase I programs, three directed edge cases and twelve repeatable unpadded random programs. Both cores ran the three benchmarks assembled with GNU RISC-V binutils. At each retirement the software model checks the PC, instruction and register write. The testbenches check the expected state of all 32 registers and 64 data words.
 
 The pipeline bench checks for simultaneous occupancy of all five stages at different instruction addresses. It also checks that a taken branch reaches the target and clears the two younger entries, and that a load-use stall holds fetch and decode while creating an EX bubble. In temporary copies, disabling one EX forwarding input or disabling the load interlock caused register-state failures. The complete suite passed from a fresh copy, and both RTL tops passed Verilator lint.
 
-An instruction retires at its completion edge. This is WB in the pipeline and the end of the instruction's only cycle in the baseline. Valid stores, branches and explicit NOPs count, even when they write no register. A bubble or flushed instruction does not count. Each bench counts from the first rising edge after reset release through retirement of the program's last instruction. The stop address is supplied to the bench. The cores continue fetching after this address.
+The bench counts an instruction when it completes WB in the pipeline or reaches the end of its only cycle in the baseline. Stores, branches and explicit NOPs count. Bubbles and flushed instructions never retire. Each bench counts cycles from the first rising edge after reset release through retirement of the instruction at its configured stop address. The core continues fetching after that address.
 
 \subsection{Benchmark cycle counts}
 Table~\ref{tab:bench} uses identical binaries and stop addresses on both cores. CPI is cycles divided by retired instructions. IPC uses the reciprocal. The single-cycle results are 1.000 CPI and 1.000 IPC throughout. Each pipeline run satisfies
@@ -120,10 +120,10 @@ Branch loop & 18 & 18 & 31 & 1 & 4 & 1.722 & 0.581\\\hline
 \end{tabular}
 \end{table}
 
-The ALU chain incurs no stalls even though consecutive instructions reuse results, including two successive writes to x1. The load benchmark stalls once for each of three immediate load dependencies. Fig.~\ref{fig:wave} shows a load followed by dependent arithmetic and another load followed by a store that uses its value. An independent ADDI and a load to x0 cause no stalls. The loop has three taken backward branches and one taken forward branch after a load. A skipped store and a skipped register write test that clearing the younger slots prevents wrong-path effects. The short, fixed programs make the sources of extra cycles easy to see. They do not estimate CPI for a general workload.
+The ALU chain runs without stalls, even with back-to-back writes to x1. The load benchmark stalls once for each of three immediate load dependencies. Fig.~\ref{fig:wave} shows a load feeding arithmetic and another feeding a store. An independent ADDI and a load to x0 cause no stalls. The loop takes three backward branches and one forward branch after a load. Clearing the wrong path skips a register write and a store. These small benchmarks isolate the cycle costs of the dependencies and branches they exercise.
 
 \subsection{Synthesis and FPGA timing}
-We synthesized both tops with Yosys 0.71+77 and placed and routed them with nextpnr-ice40 (revision 15b77f5f)~\cite{fpga}. Both use the branch-loop ROM, the same externally visible fetch and retirement signals, the same iCE40HX8K CT256 device, seed~1 and a 12 MHz clock target. Table~\ref{tab:fpga} records the final routed estimates. Tool logs and JSON reports are reproduced by the repository's FPGA script.
+We synthesized the two top modules in Yosys 0.71+77, then placed and routed them with nextpnr-ice40 (revision 15b77f5f)~\cite{fpga}. We used the branch-loop ROM, the same fetch and retirement ports, and one iCE40HX8K CT256 target for both cores. The placer used seed~1 and a 12 MHz clock target. The FPGA script saves the netlists, tool logs and timing JSON.
 
 \begin{table}[t]
 \caption{Post-route utilization and clock estimates}
@@ -133,13 +133,14 @@ Metric & Single-cycle & Pipeline\\\hline
 Logic cells & 5,310 & 5,843\\
 Block RAMs & 0 & 0\\
 I/O pins & 169 & 169\\
+Critical period (ns) & 32.93 & 23.40\\
 Maximum clock (MHz) & 30.37 & 42.74\\\hline
 \end{tabular}
 \end{table}
 
-The pipeline uses more logic cells, and its estimated maximum clock is about 1.41 times the baseline's. The local arrays use combinational reads, and writable state is cleared synchronously. This build maps the memories to logic. The wide debug outputs also occupy package pins, so the utilization describes these measured tops.
+Both cores met the 12 MHz internal target. The pipeline used 10.0\% more logic cells. Combinational reads and synchronous clearing of writable state map the local memories to logic in this build. The fetch and retirement outputs account for much of the package I/O. In zero-delay simulation, both mapped netlists matched their RTL retirement trace for the branch loop. The companion FPGA synthesis and timing report gives the mapped resource counts and critical paths.
 
-At their separate estimated maximum clocks, the branch benchmark takes about 0.593 microseconds on the single-cycle core ($18/30.37$) and 0.725 microseconds on the pipeline ($31/42.74$). The corresponding throughput estimates are 30.37 and 24.82 million retirements per second for the measured interval. At the shared 12 MHz target, completion time follows cycle count directly. These results describe the routed benchmark image and automatic pin placement. They do not include board-level I/O timing or measurements on physical hardware.
+At the estimated maximum clocks, the branch loop would take 0.593 microseconds on the single-cycle core ($18/30.37$) and 0.725 microseconds on the pipeline ($31/42.74$). That is 30.37 and 24.82 million retirements per second, respectively, over this run. At the shared 12 MHz target, runtime is proportional to cycle count. These timing estimates apply to the routed branch-loop image with automatic pin placement. Board-level I/O timing and physical operation remain unmeasured.
 
 \section{Individual Contributions}
 The module ownership below follows the repository contributions. Aryan Kinha coordinated integration and verification as team lead.
@@ -156,7 +157,7 @@ Jatin Kumar Singh\newline 2401010199 & Fetch, PC, instruction memory and IF/ID.\
 \end{center}
 
 \section{Conclusion}
-The five-stage core executes the tested instruction sequences without software padding. Forwarding handles adjacent ALU dependencies, and the interlock covers loads that cannot produce data in time for the next EX stage. The two cores agree on the architectural effects checked by the reference model. The routed pipeline has a shorter estimated clock period, while the extra cycles in the measured branch loop outweigh that gain. The comparison is limited to the supported instructions, benchmark images and FPGA target described here.
+The five-stage core ran all three benchmarks without software padding. Forwarding handled adjacent ALU dependencies, and each immediate load dependency cost one cycle. The pipeline's estimated clock period fell from 32.93 ns to 23.40 ns on the FPGA target. For the branch loop, the increase from 18 to 31 cycles outweighed that shorter period.
 
 \input{references.tex}
 \end{document}

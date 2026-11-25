@@ -2,7 +2,7 @@
 
 Verilog-2001 project for Modern Computer Architecture at Newton School of Technology, Rishihood University. The five-stage core uses forwarding, a one-cycle load-use stall, and a two-slot flush on taken branches. A single-cycle core runs the same RV32I subset: ADD, SUB, ADDI, LW, SW, BEQ, and BNE.
 
-[Final IEEE report](docs/report/final.pdf) · [Report source](docs/report/final.tex) · [Phase I report](docs/report/report.pdf) · [Demo video](https://drive.google.com/file/d/1nLgo7ZT6DUxGFKc5UvzmLJH2ZwtNONWA/view) · [GitHub Actions](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml)
+[Architecture and evaluation (IEEE report)](docs/report/riscv-pipeline-architecture-and-evaluation.pdf) · [IEEE source](docs/report/riscv-pipeline-architecture-and-evaluation.tex) · [FPGA synthesis report](docs/report/riscv-pipeline-fpga-synthesis-and-timing.pdf) · [Phase I report](docs/report/report.pdf) · [Demo video](https://drive.google.com/file/d/1nLgo7ZT6DUxGFKc5UvzmLJH2ZwtNONWA/view) · [GitHub Actions](https://github.com/aryankinha/riscv-pipex/actions/workflows/test.yml)
 
 ## Run the tests on macOS
 
@@ -54,21 +54,22 @@ brew install yosys nextpnr-ice40
 cat build/fpga/summary.csv
 ```
 
-This routes both cores on iCE40HX8K (CT256) with the same branch-loop ROM. The estimates use automatic pin placement. Physical-board testing remains pending.
+This routes both cores on iCE40HX8K (CT256) with the same branch-loop ROM. The estimates use automatic pin placement. Physical-board testing remains pending. The [synthesis report](docs/report/riscv-pipeline-fpga-synthesis-and-timing.pdf) records mapped resources, critical paths, and verification.
 
 ## Files
 
 - `rtl/` holds both cores. `tb/` holds the testbenches.
 - `programs/benchmarks/` holds the assembly, hex, and expected state for each benchmark.
-- `docs/` holds the IEEE reports, diagrams, and waveforms. To rebuild the Phase II figure and report, use TeX with IEEEtran and TikZ, plus Poppler. Run the tests first.
+- `docs/` holds the IEEE reports, diagrams, and waveforms. To rebuild the waveform and both Phase II reports, use TeX with IEEEtran and TikZ, plus Poppler. Run the tests first.
 
 ```sh
 brew install --cask mactex-no-gui
 brew install poppler
 python3 scripts/render_waveform.py load_use
 cd docs/report
-pdflatex -interaction=nonstopmode -halt-on-error final.tex
-pdflatex -interaction=nonstopmode -halt-on-error final.tex
+pdflatex -interaction=nonstopmode -halt-on-error riscv-pipeline-architecture-and-evaluation.tex
+pdflatex -interaction=nonstopmode -halt-on-error riscv-pipeline-architecture-and-evaluation.tex
+pdflatex -interaction=nonstopmode -halt-on-error riscv-pipeline-fpga-synthesis-and-timing.tex
 ```
 
 ## Team
